@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'        # e.g. v1.2.3
+  # (optional) allow manual dispatch:
+  # workflow_dispatch: {}
 
 jobs:
   build-linux:
@@ -51,15 +53,27 @@ jobs:
           cd build
           ninja aseprite
 
-      - name: Package binaries
+      - name: Package binaries (ZIP)
         run: |
           cd build/bin
-          zip -r $GITHUB_WORKSPACE/aseprite-${GITHUB_REF_NAME#v}.zip aseprite aseprite.bin
+          VERSION=${GITHUB_REF#refs/tags/}
+          zip -r $GITHUB_WORKSPACE/aseprite-${VERSION}.zip aseprite aseprite.bin
 
-      - name: Create GitHub Release & upload asset
+      - name: Package Debian (.deb) with CPack
+        run: |
+          cd build
+          # Generate a .deb using CPack
+          cpack -G DEB
+          # Move the .deb to workspace root
+          mv *.deb $GITHUB_WORKSPACE/
+
+      - name: Create GitHub Release & upload assets
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-          files: aseprite-${{ github.ref_name#v }}.zip
+          files: |
+            aseprite-${{ github.ref_name }}.zip
+            *.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
