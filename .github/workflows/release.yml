@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - 'v*'        # e.g. v1.2.3
-  # (optional) allow manual dispatch:
-  # workflow_dispatch: {}
 
 jobs:
   build-linux:
@@ -15,65 +13,76 @@ jobs:
       DEPS_DIR: deps/skia
 
     steps:
-      - name: Checkout source + submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
+    - name: Checkout source + submodules
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            g++ clang cmake ninja-build \
-            libx11-dev libxcursor-dev libxi-dev \
-            libgl1-mesa-dev libfontconfig1-dev unzip
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          g++ clang cmake ninja-build \
+          libx11-dev libxcursor-dev libxi-dev \
+          libgl1-mesa-dev libfontconfig1-dev unzip
 
-      - name: Fetch prebuilt Skia (${{ env.SKIA_VERSION }})
-        run: |
-          mkdir -p $DEPS_DIR && \
-          curl -L \
-            https://github.com/aseprite/skia/releases/download/${SKIA_VERSION}/skia-${SKIA_VERSION}-linux.zip \
-            -o /tmp/skia.zip && \
-          unzip /tmp/skia.zip -d $DEPS_DIR
+    - name: Fetch prebuilt Skia (${{ env.SKIA_VERSION }})
+      run: |
+        mkdir -p $DEPS_DIR
+        curl -L \
+          https://github.com/aseprite/skia/releases/download/${SKIA_VERSION}/skia-${SKIA_VERSION}-linux.zip \
+          -o /tmp/skia.zip
+        unzip /tmp/skia.zip -d $DEPS_DIR
 
-      - name: Configure with CMake
-        run: |
-          mkdir build && cd build
-          cmake \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DLAF_BACKEND=skia \
-            -DSKIA_DIR=${{ github.workspace }}/$DEPS_DIR \
-            -DSKIA_LIBRARY_DIR=${{ github.workspace }}/$DEPS_DIR/out/Release-x64 \
-            -DSKIA_LIBRARY=${{ github.workspace }}/$DEPS_DIR/out/Release-x64/libskia.a \
-            -G Ninja \
-            ..
+    - name: Configure with CMake
+      run: |
+        mkdir build && cd build
+        cmake \
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+          -DLAF_BACKEND=skia \
+          -DSKIA_DIR=${{ github.workspace }}/$DEPS_DIR \
+          -DSKIA_LIBRARY_DIR=${{ github.workspace }}/$DEPS_DIR/out/Release-x64 \
+          -DSKIA_LIBRARY=${{ github.workspace }}/$DEPS_DIR/out/Release-x64/libskia.a \
+          -G Ninja \
+          ..
 
-      - name: Build Aseprite
-        run: |
-          cd build
-          ninja aseprite
+    - name: Build Aseprite
+      run: |
+        cd build
+        ninja aseprite
 
-      - name: Package binaries (ZIP)
-        run: |
-          cd build/bin
-          VERSION=${GITHUB_REF#refs/tags/}
-          zip -r $GITHUB_WORKSPACE/aseprite-${VERSION}.zip aseprite aseprite.bin
+    - name: Package binaries (ZIP & tar.gz)
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        mkdir -p $GITHUB_WORKSPACE/dist
 
-      - name: Package Debian (.deb) with CPack
-        run: |
-          cd build
-          # Generate a .deb using CPack
-          cpack -G DEB
-          # Move the .deb to workspace root
-          mv *.deb $GITHUB_WORKSPACE/
+        # ZIP (bin + share)
+        cd build
+        zip -r $GITHUB_WORKSPACE/dist/aseprite-${VERSION}-linux.zip \
+          bin/aseprite bin/aseprite.bin share/aseprite
 
-      - name: Create GitHub Release & upload assets
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ github.ref_name }}
-          files: |
-            aseprite-${{ github.ref_name }}.zip
-            *.deb
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # tar.gz
+        tar czf $GITHUB_WORKSPACE/dist/aseprite-${VERSION}-linux.tar.gz \
+          -C build bin/aseprite bin/aseprite.bin share/aseprite
+
+    - name: Package Debian (.deb) with CPack
+      run: |
+        cd build
+        cpack -G DEB
+        mv *.deb $GITHUB_WORKSPACE/dist/
+
+    - name: Show artifacts
+      run: |
+        ls -lh $GITHUB_WORKSPACE/dist
+
+    - name: Create GitHub Release & upload assets
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.ref_name }}
+        files: |
+          dist/aseprite-${{ github.ref_name }}-linux.zip
+          dist/aseprite-${{ github.ref_name }}-linux.tar.gz
+          dist/*.deb
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
